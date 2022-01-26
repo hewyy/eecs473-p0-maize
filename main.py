@@ -8,8 +8,8 @@ configuration with three servos in a straight line. The front servo has a
 leg on the left side, the middle servo has a leg on the right side, and the
 rear servo has legs on both sides.
 
-To move forward, both the front and middle servos are used in tandem. To back
-left, the middle servo is used and to back right the front servo is used.
+To move forward, both the front and middle servos are used in tandem. To turn
+left, the middle servo is used and to turn right the front servo is used.
 
 The rear servo is used to move backwards and is positioned the opposite direction
 of the front two servos.
@@ -37,7 +37,7 @@ class Servo:
                 to the start position. If False, the servo will not take any
                 further movement.
 
-        Rebacks:
+        Returns:
             An instance of a Servo class.
         """
         self.name = servo.name
@@ -104,7 +104,7 @@ class MoveServos(Plan):
             app: The joy app the plan was created in
             servos: A dictionary of servos
 
-        Rebacks:
+        Returns:
             An instance of the MoveServos plan.
         """
         Plan.__init__(self, app,**kw)
@@ -163,41 +163,19 @@ class P0App( JoyApp ):
 
         # Handle connecting to the servos
         c = ckbot.logical.Cluster(count=2, names={
-          0x35: 'front',
-          0x08: 'back',
+          0x35: 'thrust',
+          0x08: 'turn',
         })
 
         # servo defs
-        self.front = c.at.front
-        self.back = c.at.back
+        self.thrust = c.at.thrust
+        self.turn = c.at.turn
 
-        # vibrator
-        speed = 350
-        delta = 700 #the amount it moves back and forth
-
-        front_center = 0
-        left_center = -8500
-        right_center = 8500
-
-        # arms
-        enabled = True
-        arm_down = 1000
-        arm_up = -7000
-        arm_speed = 150
-
-
+        # negitive is down
         # Move the front and middle motors in tandem to move forward
         self.move_forward = MoveServos(self, {
-            'back': Servo(self.back, min_pos=front_center - delta, max_pos=front_center + delta, pos_step=speed, start_pos=0),
-            'front': Servo(self.front, min_pos=arm_up, max_pos=arm_down, pos_step=arm_speed, start_pos=arm_down, run=enabled)
-        })
-        self.move_left = MoveServos(self, {
-            'back': Servo(self.back, min_pos=left_center - delta, max_pos=left_center + delta, pos_step=speed, start_pos=left_center),
-            'front': Servo(self.front, min_pos=arm_up, max_pos=arm_down, pos_step=arm_speed, start_pos=arm_down, run=enabled)
-        })
-        self.move_right = MoveServos(self, {
-            'back': Servo(self.back, min_pos=right_center - delta, max_pos=right_center + delta, pos_step=speed, start_pos=right_center),
-            'front': Servo(self.front, min_pos=arm_up, max_pos=arm_down, pos_step=arm_speed, start_pos=arm_down, run=enabled)
+            'thrust': Servo(self.thrust, min_pos=-9000, max_pos=3000, pos_step=180, start_pos=3035) #TODO: play around with the pos_step
+            #'turn': Servo(self.turn, start_pos=0, run=False) #TODO: need to change strat_pos
         })
 
 
@@ -218,9 +196,6 @@ class P0App( JoyApp ):
         """
         progress("Stop all plans called")
         self.move_forward.stop()
-        self.move_left.stop()
-        self.move_right.stop()
-
 
     def onEvent(self,evt):
         """
@@ -230,38 +205,40 @@ class P0App( JoyApp ):
             - up arrow: go forward
             - space key: pause/stop
         """
-        #progress("here")
         if evt.type != KEYDOWN:
-            reback
+            return
 
         # assertion: must be a KEYDOWN event
         if evt.key == 276:
             # go left (left arrow)
             self.stopAllPlans()
-            self.move_left.start()
+            self.thrust.set_pos(0);
+            self.turn.set_pos(-8577); #-8577
 
         elif evt.key == 275:
             # go right (right arrow)
             self.stopAllPlans()
-            self.move_right.start()
+            self.thrust.set_pos(0);
+            self.turn.set_pos(8577);
 
         elif evt.key == 273:
             # go forward (up arrow)
             self.stopAllPlans()
-            self.move_forward.start()
+            self.thrust.set_pos(0);
+            self.turn.set_pos(0);
 
         elif evt.key == 274:
             # go backward (down arrow)
             self.stopAllPlans()
-            # self.move_back.start()
 
         elif evt.key == 32:
             # pause/stop (space bar)
             self.stopAllPlans()
+            self.move_forward.start()
 
         # Hide robot position events
         elif evt.type==CKBOTPOSITION:
-            reback
+            return
 
         # Send events to JoyApp if not recognized
         JoyApp.onEvent(self,evt)

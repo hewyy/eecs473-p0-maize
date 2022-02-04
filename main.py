@@ -1,25 +1,39 @@
 #!/usr/bin/env python
 
 '''
-FILE RobotDriver.py
+FILE demo-turning.py
 
-This file is used to control a robot with three servos. It is meant for a
-configuration with three servos in a straight line. The front servo has a
-leg on the left side, the middle servo has a leg on the right side, and the
-rear servo has legs on both sides.
+This file is used to control a robot with two servos.
 
-To move forward, both the front and middle servos are used in tandem. To turn
-left, the middle servo is used and to turn right the front servo is used.
-
-The rear servo is used to move backwards and is positioned the opposite direction
-of the front two servos.
+TODO: add more text here
 '''
+
 from joy.plans import Plan
 from joy import JoyApp
 from joy.decl import *
 from joy.misc import *
 from joy import *
 import ckbot
+
+
+
+# TODO: change these as needed to acheive the correct FORWARD motion
+THRUST_DN = 1000 # <-- inrease magnitude to make thruster scoop lower
+THRUST_UP = -8000 # <-- increase magnitude to make thruster raise higher
+
+
+
+# TODO: change these as needed to acheive the correct TURNING motion
+# thrusting servo pos
+POS_DN = 6000 
+POS_UP = -4000 
+
+# turning servo pos
+POS_TL = -8577
+POS_TR = 8577
+POS_CT = 0
+
+
 
 class Servo:
     def __init__(self, servo, min_pos=-10000, max_pos=10000, pos_step=100, start_pos=0, run=True, *arg,**kw):
@@ -167,17 +181,24 @@ class P0App( JoyApp ):
           0x08: 'turn',
         })
 
-        # servo defs
+        # servo defintions
         self.thrust = c.at.thrust
         self.turn = c.at.turn
 
-        # negitive is down
-        # Move the front and middle motors in tandem to move forward
+
         self.move_forward = MoveServos(self, {
-            'thrust': Servo(self.thrust, min_pos=-9000, max_pos=3000, pos_step=180, start_pos=3035) #TODO: play around with the pos_step
+            'thrust': Servo(self.thrust, min_pos=THRUST_UP, max_pos=THRUST_DN, pos_step=180, start_pos=0) #TODO: play around with the pos_step
             #'turn': Servo(self.turn, start_pos=0, run=False) #TODO: need to change strat_pos
         })
 
+
+    def move_to_pos(self, servo, pos):
+        servo.set_pos(pos)
+        try:
+            while(servo.mem_read(b'\x2e') == 1):
+                continue
+        except:
+            return 
 
     def onStart(self):
         """
@@ -197,44 +218,75 @@ class P0App( JoyApp ):
         progress("Stop all plans called")
         self.move_forward.stop()
 
+
     def onEvent(self,evt):
-        """
-        Responds to keyboard events
-            - left arrow: go left
-            - right arrow: go right
-            - up arrow: go forward
-            - space key: pause/stop
-        """
+        # assertion: must be a KEYDOWN event
         if evt.type != KEYDOWN:
             return
 
-        # assertion: must be a KEYDOWN event
-        if evt.key == 276:
-            # go left (left arrow)
-            self.stopAllPlans()
-            self.thrust.set_pos(0);
-            self.turn.set_pos(-8577); #-8577
 
-        elif evt.key == 275:
-            # go right (right arrow)
+        # MOVING LEFT
+        if evt.key == K_LEFT:
             self.stopAllPlans()
-            self.thrust.set_pos(0);
-            self.turn.set_pos(8577);
 
-        elif evt.key == 273:
+            # down
+            self.move_to_pos(self.thrust, POS_UP)
+
+            # left
+            self.move_to_pos(self.turn, POS_TL)
+
+            # up
+            self.move_to_pos(self.thrust, POS_DN)
+
+            # right
+            self.move_to_pos(self.turn, POS_CT)
+
+
+        # MOVING RIGHT
+        elif evt.key == K_RIGHT:
+            self.stopAllPlans()
+
+            # down
+            self.move_to_pos(self.thrust, POS_UP)
+
+            # right
+            self.move_to_pos(self.turn, POS_TR)
+
+            # up
+            self.move_to_pos(self.thrust, POS_DN)
+
+            # left
+            self.move_to_pos(self.turn, POS_CT)
+
+
+        # THRUST UP
+        elif evt.key == K_UP:
             # go forward (up arrow)
             self.stopAllPlans()
-            self.thrust.set_pos(0);
-            self.turn.set_pos(0);
+            self.move_to_pos(self.thrust, POS_UP)
 
-        elif evt.key == 274:
+
+        # THRUST DOWN
+        elif evt.key == K_DOWN:
             # go backward (down arrow)
             self.stopAllPlans()
+            self.move_to_pos(self.thrust, POS_DN)
 
-        elif evt.key == 32:
+
+        # MOVE FORWARD
+        elif evt.key == K_SPACE:
             # pause/stop (space bar)
             self.stopAllPlans()
             self.move_forward.start()
+
+        
+        # RESET ARM POSIION
+        elif evt.key == K_RSHIFT:
+            # reset orientation
+            self.stopAllPlans()
+            self.move_to_pos(self.thrust, POS_CT)
+            self.move_to_pos(self.turn, POS_CT)
+
 
         # Hide robot position events
         elif evt.type==CKBOTPOSITION:

@@ -17,12 +17,12 @@ import ckbot
 import time
 
 
-# TODO: change these as needed to acheive the correct FORWARD motion
+# change these as needed to acheive the correct FORWARD motion
 THRUST_DN = 4500 # <-- inrease magnitude to make thruster scoop lower
 THRUST_UP = -9000 # <-- increase magnitude to make thruster raise higher
 
 
-# TODO: change these as needed to acheive the correct TURNING motion
+# change these as needed to acheive the correct TURNING motion
 # thrusting servo pos
 POS_DN = 6000 
 POS_UP = -7000 
@@ -37,7 +37,7 @@ TURN_DELTA = 6000
 
 class Move:
 
-    def __init__(self, servo, start_pos, end_pos, speed, run_short = False):
+    def __init__(self, servo, start_pos, end_pos, speed = 113, run_short = False):
         self.servo = servo
         self.start_pos = start_pos
         self.end_pos = end_pos
@@ -52,11 +52,7 @@ class Move:
 
 
         # estamted time it will take to complete the rotation (in ms)
-        self.rt_estimate = (5.0/3.0)*angle_delta/abs(real_speed) - run_short # this is the estimated time it will take to make the rotation
-
-        if run_short:
-            self.rt_estimate = self.rt_estimate - self.rt_estimate*0.03
-
+        self.rt_estimate = (5.0/3.0)*angle_delta/abs(real_speed) - run_short
 
         ##### explaing in the 5/3 above #######
         #   we need the angualr change to be in terms of rotation, 
@@ -71,10 +67,14 @@ class Move:
         #  the 5/3 is just 60000 / 36000
 
 
+        if run_short:
+            self.rt_estimate = self.rt_estimate - self.rt_estimate*0.03
+
+
     def run(self):
         self.servo.set_speed(self.speed)
         self.servo.set_pos(self.end_pos)
-        time.sleep((self.rt_estimate / 10.0))
+        time.sleep((self.rt_estimate / 10.0)) # sleep is in minutes
         return
 
 
@@ -115,42 +115,41 @@ class P0App( JoyApp ):
         self.thrust = c.at.thrust
         self.turn = c.at.turn
 
-        self.moving_forward = False
-
 
         self.turn_left = Routine([
-                            Move(self.turn, POS_CT, POS_TL, 100), 
-                            Move(self.thrust, POS_DN, POS_UP, 100),
-                            Move(self.turn, POS_TL, POS_CT, 100),
-                            Move(self.thrust, POS_UP, POS_DN, 100)
+                            Move(self.turn, POS_CT, POS_TL), 
+                            Move(self.thrust, POS_DN, POS_UP),
+                            Move(self.turn, POS_TL, POS_CT),
+                            Move(self.thrust, POS_UP, POS_DN)
                             ])
 
         self.turn_right = Routine([
-                            Move(self.turn, POS_CT, POS_TR, 100), 
-                            Move(self.thrust, POS_DN, POS_UP, 100),
-                            Move(self.turn, POS_TR, POS_CT, 100),
-                            Move(self.thrust, POS_UP, POS_DN, 100)
+                            Move(self.turn, POS_CT, POS_TR), 
+                            Move(self.thrust, POS_DN, POS_UP),
+                            Move(self.turn, POS_TR, POS_CT),
+                            Move(self.thrust, POS_UP, POS_DN)
                             ])
 
         self.turn_left_small = Routine([
-                            Move(self.turn, POS_CT, POS_TL + TURN_DELTA, 100), 
-                            Move(self.thrust, POS_DN, POS_UP, 100),
-                            Move(self.turn, POS_TL + TURN_DELTA, POS_CT, 100),
-                            Move(self.thrust, POS_UP, POS_DN, 100)
+                            Move(self.turn, POS_CT, POS_TL + TURN_DELTA), 
+                            Move(self.thrust, POS_DN, POS_UP),
+                            Move(self.turn, POS_TL + TURN_DELTA, POS_CT),
+                            Move(self.thrust, POS_UP, POS_DN)
                             ])
 
         self.turn_right_small = Routine([
-                            Move(self.turn, POS_CT, POS_TR - TURN_DELTA, 100), 
-                            Move(self.thrust, POS_DN, POS_UP, 100),
-                            Move(self.turn, POS_TR - TURN_DELTA, POS_CT, 100),
-                            Move(self.thrust, POS_UP, POS_DN, 100)
+                            Move(self.turn, POS_CT, POS_TR - TURN_DELTA), 
+                            Move(self.thrust, POS_DN, POS_UP),
+                            Move(self.turn, POS_TR - TURN_DELTA, POS_CT),
+                            Move(self.thrust, POS_UP, POS_DN)
                             ])        
 
         self.move_forward = Routine([
-                            Move(self.thrust, THRUST_DN, THRUST_UP, 100), 
-                            Move(self.thrust, THRUST_UP, THRUST_DN, 15, run_short = True)
+                            Move(self.thrust, THRUST_DN, THRUST_UP), 
+                            Move(self.thrust, THRUST_UP, THRUST_DN, speed = 9, run_short = True)
                             ])
 
+        self.moving_forward = False
 
 
     def move_to_pos(self, servo, pos):
@@ -161,7 +160,6 @@ class P0App( JoyApp ):
         except:
             return 
 
-
     def onStart(self):
         """
         Don't act until told to start moving forward
@@ -169,17 +167,11 @@ class P0App( JoyApp ):
         """
         progress("Started program")
 
-    def stopAllPlans(self):
+    def onStop(self):
         """
-        Helper function to stop all the plans. This will
-        stop all the plans running without regard to whether they are
-        currently active or not.
-
-        This is called before starting a new plan.
+        Stops any plans that may be running
         """
-        progress("Stop all plans called")
-        # self.move_forward.stop()
-
+        progress("P0App: onStop called")
 
     def onEvent(self,evt):
         # assertion: must be a KEYDOWN event
@@ -191,7 +183,6 @@ class P0App( JoyApp ):
         if evt.key == K_LEFT:
             self.turn_left.execute()
 
-
         # MOVING LEFT - small
         elif evt.key == K_a:
             self.turn_left_small.execute()
@@ -200,19 +191,14 @@ class P0App( JoyApp ):
         elif evt.key == K_RIGHT:
             self.turn_right.execute()
 
-
         # MOVING RIGHT - small
         elif evt.key == K_d:
             self.turn_right_small.execute()
-
 
         # MOVE FORWARD
         elif evt.key == K_UP:
             moving_forward = True
             self.move_forward.execute()
-
-
-        #  vv BELOW IS FOR TESTING vv #
 
         # THRUST UP
         elif evt.key == K_w:
@@ -220,15 +206,15 @@ class P0App( JoyApp ):
 
         # THRUST DOWN
         elif evt.key == K_s:
-            self.thrust.set_speed(7)
+            self.thrust.set_speed(10)
             self.move_to_pos(self.thrust, POS_DN)
             self.thrust.set_speed(0)
         
         # RESET ARM POSIION
         elif evt.key == K_RSHIFT:
+            self.thrust.set_speed(0)
             self.move_to_pos(self.thrust, POS_CT)
             self.move_to_pos(self.turn, POS_CT)
-
 
         # Hide robot position events
         elif evt.type==CKBOTPOSITION:
@@ -237,12 +223,6 @@ class P0App( JoyApp ):
         # Send events to JoyApp if not recognized
         JoyApp.onEvent(self,evt)
 
-    def onStop(self):
-        """
-        Stops any plans that may be running
-        """
-        progress("P0App: onStop called")
-        self.stopAllPlans()
 
 #main function
 if __name__=="__main__":

@@ -14,149 +14,79 @@ from joy.decl import *
 from joy.misc import *
 from joy import *
 import ckbot
-
+import time
 
 
 # TODO: change these as needed to acheive the correct FORWARD motion
-THRUST_DN = 1000 # <-- inrease magnitude to make thruster scoop lower
-THRUST_UP = -8000 # <-- increase magnitude to make thruster raise higher
-
+THRUST_DN = 4500 # <-- inrease magnitude to make thruster scoop lower
+THRUST_UP = -9000 # <-- increase magnitude to make thruster raise higher
 
 
 # TODO: change these as needed to acheive the correct TURNING motion
 # thrusting servo pos
 POS_DN = 6000 
-POS_UP = -4000 
+POS_UP = -7000 
 
 # turning servo pos
 POS_TL = -8577
 POS_TR = 8577
 POS_CT = 0
 
+TURN_DELTA = 6000
 
 
-class Servo:
-    def __init__(self, servo, min_pos=-10000, max_pos=10000, pos_step=100, start_pos=0, run=True, *arg,**kw):
-        """A helper class to handle servo interactions
+class Move:
 
-        Args:
-            servo: The physical servo from pyckbot
-            min_pos: The minimum position the servo can be set to
-            max_pos: The maximum position the servo can be set to
-            pos_step: The amount to change the servo position each time
-                change_pos is called
-            start_pos: The position the servo should be set to when starting
-                the plan.
-            run: Whether the server should change its position after being set
-                to the start position. If False, the servo will not take any
-                further movement.
-
-        Returns:
-            An instance of a Servo class.
-        """
-        self.name = servo.name
-        self.start_pos = start_pos
-        self.max_pos = max_pos
-        self.min_pos = min_pos
-        self.pos_step = pos_step
-        self.increase = True
+    def __init__(self, servo, start_pos, end_pos, speed, run_short = False):
         self.servo = servo
-        self.run = run
+        self.start_pos = start_pos
+        self.end_pos = end_pos
+        self.speed = speed
 
-    def increase_pos(self):
-        """
-        Increases the position of a servo by the position step.
-        Only changes the position if self.run == True
-        """
-        if self.run:
-            self.set_pos(self.current_pos + self.pos_step)
 
-    def decrease_pos(self):
-        """
-        Decreases the position of a servo by the position step.
-        Only changes the position if self.run == True
-        """
-        if self.run:
-            self.set_pos(self.current_pos - self.pos_step)
+        self.servo.set_speed(speed)
+        real_speed = self.servo.get_moving_speed() # the speed we set is not the acutal speed in the register, some API problems?
 
-    def set_pos(self, pos):
-        """Sets the position of the servo to pos
 
-        Args:
-            pos: A positive or negative value to set the position to
-        """
-        self.servo.set_pos(pos)
-        self.current_pos = pos
+        angle_delta = abs(self.start_pos - self.end_pos) / 100.0
 
-    def change_pos(self):
-        """Decides how to change the position of the servo
 
-        If the current position is greater than the maximum position,
-        will set self.increase to be False. If the current position is less
-        than the minimum position, will set self.increase to be True.
+        # estamted time it will take to complete the rotation (in ms)
+        self.rt_estimate = (5.0/3.0)*angle_delta/abs(real_speed) - run_short # this is the estimated time it will take to make the rotation
 
-        If self.increase is True, it will call self.increase_pos otherwise
-        it will call self.decrease_pos
-        """
-        if self.current_pos > self.max_pos:
-            self.increase = False
-        if self.current_pos < self.min_pos:
-            self.increase = True
+        if run_short:
+            self.rt_estimate = self.rt_estimate - self.rt_estimate*0.03
 
-        act = self.increase_pos if self.increase else self.decrease_pos
-        act()
 
-class MoveServos(Plan):
-    '''
-    MoveServos plan.
-    '''
+        ##### explaing in the 5/3 above #######
+        #   we need the angualr change to be in terms of rotation, 
+        #        rotation amount = angle_delta / 36000 
+        #
+        #   we also need the to convert the speed to be in terms of ms
+        #        rp(ms) = rmp / 60000
+        #
+        #  finally, we need to etimate the time, so 
+        #       time = rotation amount / rp(ms)
+        # 
+        #  the 5/3 is just 60000 / 36000
 
-    def __init__(self, app, servos, *arg,**kw):
-        """Create an instance of the MoveServos plan
 
-        Args:
-            app: The joy app the plan was created in
-            servos: A dictionary of servos
+    def run(self):
+        self.servo.set_speed(self.speed)
+        self.servo.set_pos(self.end_pos)
+        time.sleep((self.rt_estimate / 10.0))
+        return
 
-        Returns:
-            An instance of the MoveServos plan.
-        """
-        Plan.__init__(self, app,**kw)
-        self.servos = servos
 
-    def servosToStartPosition( self ):
-        """
-        Sets all servos to their start positions
-        """
-        for servo_name, servo in self.servos.items():
-            servo.set_pos(servo.start_pos)
+class Routine:
 
-    def onStart( self ):
-        """
-        Called when the plan is started. Sets all servos to
-        start position.
-        """
-        self.servosToStartPosition()
+    def __init__(self, moves):
+        self.moves = moves
 
-    def onStop( self ):
-        """
-        Called when the plan is stopped. Sets all servos to
-        start position.
-        """
-        self.servosToStartPosition()
+    def execute(self):
+        for move in self.moves:
+            move.run()
 
-    def behavior( self ):
-        """
-        Will continiously change the servo's position until
-        the plan is stopped.
-
-        Yields control back to JoyApp to make sure any other events
-        can be handled.
-        """
-        while True:
-            yield
-            for servo_name, servo in self.servos.items():
-                servo.change_pos()
 
 class P0App( JoyApp ):
     '''
@@ -185,11 +115,42 @@ class P0App( JoyApp ):
         self.thrust = c.at.thrust
         self.turn = c.at.turn
 
+        self.moving_forward = False
 
-        self.move_forward = MoveServos(self, {
-            'thrust': Servo(self.thrust, min_pos=THRUST_UP, max_pos=THRUST_DN, pos_step=180, start_pos=0) #TODO: play around with the pos_step
-            #'turn': Servo(self.turn, start_pos=0, run=False) #TODO: need to change strat_pos
-        })
+
+        self.turn_left = Routine([
+                            Move(self.turn, POS_CT, POS_TL, 100), 
+                            Move(self.thrust, POS_DN, POS_UP, 100),
+                            Move(self.turn, POS_TL, POS_CT, 100),
+                            Move(self.thrust, POS_UP, POS_DN, 100)
+                            ])
+
+        self.turn_right = Routine([
+                            Move(self.turn, POS_CT, POS_TR, 100), 
+                            Move(self.thrust, POS_DN, POS_UP, 100),
+                            Move(self.turn, POS_TR, POS_CT, 100),
+                            Move(self.thrust, POS_UP, POS_DN, 100)
+                            ])
+
+        self.turn_left_small = Routine([
+                            Move(self.turn, POS_CT, POS_TL + TURN_DELTA, 100), 
+                            Move(self.thrust, POS_DN, POS_UP, 100),
+                            Move(self.turn, POS_TL + TURN_DELTA, POS_CT, 100),
+                            Move(self.thrust, POS_UP, POS_DN, 100)
+                            ])
+
+        self.turn_right_small = Routine([
+                            Move(self.turn, POS_CT, POS_TR - TURN_DELTA, 100), 
+                            Move(self.thrust, POS_DN, POS_UP, 100),
+                            Move(self.turn, POS_TR - TURN_DELTA, POS_CT, 100),
+                            Move(self.thrust, POS_UP, POS_DN, 100)
+                            ])        
+
+        self.move_forward = Routine([
+                            Move(self.thrust, THRUST_DN, THRUST_UP, 100), 
+                            Move(self.thrust, THRUST_UP, THRUST_DN, 15, run_short = True)
+                            ])
+
 
 
     def move_to_pos(self, servo, pos):
@@ -199,6 +160,7 @@ class P0App( JoyApp ):
                 continue
         except:
             return 
+
 
     def onStart(self):
         """
@@ -216,74 +178,54 @@ class P0App( JoyApp ):
         This is called before starting a new plan.
         """
         progress("Stop all plans called")
-        self.move_forward.stop()
+        # self.move_forward.stop()
 
 
     def onEvent(self,evt):
         # assertion: must be a KEYDOWN event
+
         if evt.type != KEYDOWN:
             return
 
-
         # MOVING LEFT
         if evt.key == K_LEFT:
-            self.stopAllPlans()
+            self.turn_left.execute()
 
-            # down
-            self.move_to_pos(self.thrust, POS_UP)
 
-            # left
-            self.move_to_pos(self.turn, POS_TL)
-
-            # up
-            self.move_to_pos(self.thrust, POS_DN)
-
-            # right
-            self.move_to_pos(self.turn, POS_CT)
-
+        # MOVING LEFT - small
+        elif evt.key == K_a:
+            self.turn_left_small.execute()
 
         # MOVING RIGHT
         elif evt.key == K_RIGHT:
-            self.stopAllPlans()
-
-            # down
-            self.move_to_pos(self.thrust, POS_UP)
-
-            # right
-            self.move_to_pos(self.turn, POS_TR)
-
-            # up
-            self.move_to_pos(self.thrust, POS_DN)
-
-            # left
-            self.move_to_pos(self.turn, POS_CT)
+            self.turn_right.execute()
 
 
-        # THRUST UP
-        elif evt.key == K_UP:
-            # go forward (up arrow)
-            self.stopAllPlans()
-            self.move_to_pos(self.thrust, POS_UP)
-
-
-        # THRUST DOWN
-        elif evt.key == K_DOWN:
-            # go backward (down arrow)
-            self.stopAllPlans()
-            self.move_to_pos(self.thrust, POS_DN)
+        # MOVING RIGHT - small
+        elif evt.key == K_d:
+            self.turn_right_small.execute()
 
 
         # MOVE FORWARD
-        elif evt.key == K_SPACE:
-            # pause/stop (space bar)
-            self.stopAllPlans()
-            self.move_forward.start()
+        elif evt.key == K_UP:
+            moving_forward = True
+            self.move_forward.execute()
 
+
+        #  vv BELOW IS FOR TESTING vv #
+
+        # THRUST UP
+        elif evt.key == K_w:
+            self.move_to_pos(self.thrust, POS_UP)
+
+        # THRUST DOWN
+        elif evt.key == K_s:
+            self.thrust.set_speed(7)
+            self.move_to_pos(self.thrust, POS_DN)
+            self.thrust.set_speed(0)
         
         # RESET ARM POSIION
         elif evt.key == K_RSHIFT:
-            # reset orientation
-            self.stopAllPlans()
             self.move_to_pos(self.thrust, POS_CT)
             self.move_to_pos(self.turn, POS_CT)
 

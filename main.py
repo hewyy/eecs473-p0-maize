@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
 '''
-FILE demo-turning.py
+FILE main.py
 
 This file is used to control a robot with two servos.
+Two main classes are defined in order to control the robots execution.
 
-TODO: add more text here
 '''
 
 from joy.plans import Plan
@@ -32,22 +32,31 @@ POS_TL = -8577
 POS_TR = 8577
 POS_CT = 0
 
+# use to change the min turing amount
 TURN_DELTA = 6000
 
 
 class Move:
+    '''
+    A Move representes moving a single servo to a goal angle
+    '''
 
     def __init__(self, servo, start_pos, end_pos, speed = 113, run_short = False):
+        '''
+        Creates new Move oject that takes on properties of the passed in parameters
+        Also calucaltes the estimated time it will take for the move to execute
+        '''
         self.servo = servo
         self.start_pos = start_pos
         self.end_pos = end_pos
         self.speed = speed
 
 
+        # the speed we set is not the acutal speed in the register, a bug in the API perhaps?
         self.servo.set_speed(speed)
-        real_speed = self.servo.get_moving_speed() # the speed we set is not the acutal speed in the register, some API problems?
+        real_speed = self.servo.get_moving_speed() 
 
-
+        # find the displacment angle
         angle_delta = abs(self.start_pos - self.end_pos) / 100.0
 
 
@@ -67,39 +76,51 @@ class Move:
         #  the 5/3 is just 60000 / 36000
 
 
+        # change the estimate to be shorter, allows for smoother motion in cycles
         if run_short:
             self.rt_estimate = self.rt_estimate - self.rt_estimate*0.03
 
 
+
     def run(self):
+        '''
+        Sets the speed of the servo and then sets the position
+        Yes, this is a blocking function call, but it's faster and more consistant than ckbot 
+        '''
         self.servo.set_speed(self.speed)
         self.servo.set_pos(self.end_pos)
-        time.sleep((self.rt_estimate / 10.0)) # sleep is in minutes
+        time.sleep((self.rt_estimate / 10.0)) # sleep() is in minutes to we convert
         return
 
 
 class Routine:
-
+    '''
+    A Routine is a collection of Moves which can be execuited in sequence
+    '''
     def __init__(self, moves):
+        '''
+        Creates new Routine object
+        '''
         self.moves = moves
 
     def execute(self):
+        '''
+        Runs through every move in the routine and runs the move
+        '''
         for move in self.moves:
             move.run()
 
 
 class P0App( JoyApp ):
     '''
-    The P0App handles keyboard events to stop or start plans.
+    The P0App handles keyboard events and executes different routines
     '''
 
-    '''
-    This searches for three servors named 'front', 'middle', and 'back'
-    It overrides anything specified in the .yml file.
-
-    Servos are initialized and plans are created.
-    '''
     def __init__(self,robot=dict(count=2),*arg,**kw):
+        '''
+        Initilizes a new P0App object, also creates the Routines
+        '''
+        
         cfg = dict ()
 
         # initializes the application's app.robot attribute
@@ -116,6 +137,7 @@ class P0App( JoyApp ):
         self.turn = c.at.turn
 
 
+        # Create Routines
         self.turn_left = Routine([
                             Move(self.turn, POS_CT, POS_TL), 
                             Move(self.thrust, POS_DN, POS_UP),
@@ -149,10 +171,13 @@ class P0App( JoyApp ):
                             Move(self.thrust, THRUST_UP, THRUST_DN, speed = 9, run_short = True)
                             ])
 
-        self.moving_forward = False
 
 
     def move_to_pos(self, servo, pos):
+        """
+        Moves the servo to the correct positoion and returns after the position is reached
+        Yes, this is a blocking function call, but it is faster than the ckbot API!
+        """
         servo.set_pos(pos)
         try:
             while(servo.mem_read(b'\x2e') == 1):
@@ -174,7 +199,10 @@ class P0App( JoyApp ):
         progress("P0App: onStop called")
 
     def onEvent(self,evt):
-        # assertion: must be a KEYDOWN event
+        """
+        Called when there is pygame event
+        Executes a Routine based on the key pressed
+        """
 
         if evt.type != KEYDOWN:
             return
@@ -197,7 +225,6 @@ class P0App( JoyApp ):
 
         # MOVE FORWARD
         elif evt.key == K_UP:
-            moving_forward = True
             self.move_forward.execute()
 
         # THRUST UP
